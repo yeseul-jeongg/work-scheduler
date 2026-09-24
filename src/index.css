@@ -290,3 +290,28 @@ select.inp { cursor: pointer; }
 .bd.done { background: #e1f2e7; color: #1d6f42; }
 .bd.miss { background: #fde4e4; color: #8c1d18; }
 .miss-note { color: #8c1d18; }
+
+/* 5단계 손으로 고치기 */
+.sheet button.c.ed { font-family: inherit; padding: 0; border-top: none; border-left: none; cursor: pointer; }
+.sheet button.c.ed.wk { border-left: 2px solid #6b6b6b; }
+.sheet button.c.ed:hover { filter: brightness(0.94); }
+.sheet button.c.ed:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
+.sheet .c.lk { position: relative; }
+.sheet .c.lk::after { content: ''; position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 50%; background: #1d6f42; }
+.sheet .c.editing { box-shadow: inset 0 0 0 2px var(--green); }
+.cell-editor {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 50;
+  width: min(760px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.22); border-color: var(--green);
+}
+.btn.on { border: 2px solid var(--green); background: #eef6f0; font-weight: 800; }
+.cand { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cand-btn { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; text-align: left; padding: 8px 12px; border: 1px solid var(--input); border-radius: 4px; background: #fff; cursor: pointer; font: inherit; }
+.cand-btn:hover:not(:disabled) { background: #f3f7f4; }
+.cand-btn.on { border: 2px solid var(--green); background: #eef6f0; padding: 7px 11px; }
+.cand-btn:disabled { opacity: .55; cursor: not-allowed; }
+.plan { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.plan-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+.fld.inline { flex-direction: row; align-items: center; gap: 8px; }
+.ok-note { color: #1d6f42; font-weight: 700; margin: 0; }
+.sw-box.lkbox { position: relative; } .sw-box.lkbox::after { content: ""; position: absolute; top: 2px; right: 2px; width: 5px; height: 5px; border-radius: 50%; background: #1d6f42; }

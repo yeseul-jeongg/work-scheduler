@@ -18,6 +18,7 @@ import {
   windowStart,
   dutyRuns,
   codeAt,
+  countsAtAcademy,
   MAX_RUN,
   rng,
   type Cells,
@@ -107,7 +108,8 @@ export function assign(input: AssignInput, seed = Date.now()): AssignOutput {
   for (const d of ctx.days) {
     if (ctx.kind(d) !== 'weekend') continue
     const need = ctx.weekendNeed(d)
-    const already = staff.filter((s) => s.weekendTeam && ctx.employed(s, d) && cells.get(key(s.id, d)) === 'work')
+    // 이미 들어간 사람 (손으로 넣은 집체팀·대타 포함)
+    const already = staff.filter((s) => countsAtAcademy(s) && ctx.employed(s, d) && cells.get(key(s.id, d)) === 'work')
     let remaining = need - already.length
     if (remaining <= 0) continue
     const ws = windowStart(d)
@@ -323,6 +325,8 @@ export function computeCarry(
   past: { start_date: string; end_date: string }[],
   asg: { staff_id: string; date: string; code: string }[],
   holidays: { date: string; work_open: boolean }[] = [],
+  /** 공평 배분 대상(집체팀)만. 대타 횟수는 이월에 안 넣어요 */
+  only?: Set<string>,
 ): Record<string, number> {
   const offHol = new Set(holidays.filter((h) => !h.work_open).map((h) => h.date))
   const carry: Record<string, number> = {}
@@ -331,6 +335,7 @@ export function computeCarry(
     const cnt: Record<string, number> = {}
     asg.forEach((a) => {
       if (a.date < p.start_date || a.date > p.end_date || a.code !== 'work' || offHol.has(a.date)) return
+      if (only && !only.has(a.staff_id)) return
       const w = dow(a.date)
       if (w === 0 || w === 6) cnt[a.staff_id] = (cnt[a.staff_id] ?? 0) + 1
     })

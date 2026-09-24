@@ -24,6 +24,7 @@ const emptyDraft = (teamId: string | null): Draft => ({
   team_id: teamId,
   can_solo: true,
   can_weekend: true,
+  can_academy: false,
   hire_date: null,
   leave_date: null,
   memo: '',
@@ -43,6 +44,7 @@ export default function StaffPage() {
   const t0 = today()
   const isRetired = (s: Staff) => !!s.leave_date && s.leave_date < t0
   const teamName = (id: string | null) => teams?.find((t) => t.id === id)?.name ?? '—'
+  const teamDuty = (id: string | null) => !!teams?.find((t) => t.id === id)?.weekend_duty
 
   const ordered = useMemo(() => {
     if (!staff) return []
@@ -159,6 +161,7 @@ export default function StaffPage() {
             <div className="cell w86" role="columnheader">팀</div>
             <div className="cell w80 center" role="columnheader">혼자 근무</div>
             <div className="cell w80 center" role="columnheader">주말 근무</div>
+            <div className="cell w80 center" role="columnheader" title="집체팀이 아니어도 학원 근무를 대신할 수 있는 사람">학원 대타</div>
             <div className="cell w96" role="columnheader">입사일</div>
             <div className="cell w96" role="columnheader">퇴사일</div>
             <div className="cell flex" role="columnheader">비고</div>
@@ -207,10 +210,17 @@ export default function StaffPage() {
               <div className="cell w80 center" role="cell" onClick={(e) => e.stopPropagation()}>
                 <input type="checkbox" className="cb" checked={ov[s.id]?.can_weekend ?? s.can_weekend} aria-label={`${s.name} 주말 근무 가능`} onChange={(e) => quickToggle(s, { can_weekend: e.target.checked })} />
               </div>
+              <div className="cell w80 center" role="cell" onClick={(e) => e.stopPropagation()}>
+                {teamDuty(s.team_id) ? (
+                  <span className="muted small" title="주말 근무 팀은 원래 학원 근무">—</span>
+                ) : (
+                  <input type="checkbox" className="cb" checked={ov[s.id]?.can_academy ?? s.can_academy} aria-label={`${s.name} 학원 대타 가능`} onChange={(e) => quickToggle(s, { can_academy: e.target.checked })} />
+                )}
+              </div>
               <div className="cell w96 muted" role="cell">{s.hire_date ?? '—'}</div>
               <div className="cell w96 muted" role="cell">{s.leave_date ?? '—'}</div>
               <div className="cell flex small muted" role="cell">
-                {[isRetired(s) ? '퇴사' : '', !s.can_weekend ? '주말 불가' : '', !s.can_solo ? '혼자 불가' : '', s.memo].filter(Boolean).join(' · ')}
+                {[isRetired(s) ? '퇴사' : '', !s.can_weekend ? '주말 불가' : '', !s.can_solo ? '혼자 불가' : '', !teamDuty(s.team_id) && s.can_academy ? '학원 대타 가능' : '', s.memo].filter(Boolean).join(' · ')}
               </div>
             </div>
           ))}
@@ -286,7 +296,7 @@ function StaffForm({
 }) {
   const [d, setD] = useState<Draft>(() =>
     initial
-      ? { name: initial.name, rank: initial.rank, team_id: initial.team_id, can_solo: initial.can_solo, can_weekend: initial.can_weekend, hire_date: initial.hire_date, leave_date: initial.leave_date, memo: initial.memo ?? '' }
+      ? { name: initial.name, rank: initial.rank, team_id: initial.team_id, can_solo: initial.can_solo, can_weekend: initial.can_weekend, can_academy: initial.can_academy ?? false, hire_date: initial.hire_date, leave_date: initial.leave_date, memo: initial.memo ?? '' }
       : emptyDraft(teams[0]?.id ?? null),
   )
   const [busy, setBusy] = useState(false)
@@ -365,6 +375,12 @@ function StaffForm({
             <input type="checkbox" checked={d.can_weekend} onChange={(e) => set('can_weekend', e.target.checked)} />
             <span><b>주말 근무 가능</b><br /><span className="sub">신입 기간에는 꺼두고, 나중에 켜면 돼요</span></span>
           </label>
+          {!teams.find((t) => t.id === d.team_id)?.weekend_duty && (
+            <label className="chk top">
+              <input type="checkbox" checked={d.can_academy} onChange={(e) => set('can_academy', e.target.checked)} />
+              <span><b>학원 대타 가능</b><br /><span className="sub">집체팀이 아니어도 학원 근무를 할 줄 알면 체크. 자동 배정에는 안 들어가고, 일정표에서 대타·추가 근무로 넣을 수 있어요</span></span>
+            </label>
+          )}
         </div>
         <label className="fld">
           비고 (선택)
@@ -594,7 +610,7 @@ function PasteStaff({
             let order = existing.length
             for (const r of fresh) {
               order += 1
-              await addStaff({ name: r.name, rank: r.rank, team_id: teamId || null, can_solo: true, can_weekend: weekend, hire_date: null, leave_date: null, memo: '', sort_order: order })
+              await addStaff({ name: r.name, rank: r.rank, team_id: teamId || null, can_solo: true, can_weekend: weekend, can_academy: false, hire_date: null, leave_date: null, memo: '', sort_order: order })
             }
             onDone(fresh.length)
           } catch (e) {

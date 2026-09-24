@@ -1,6 +1,6 @@
 // 규칙 검사: 자동 배정 결과와 (5단계) 손으로 고친 결과를 같은 기준으로 봐요.
 import { addDays, dateRange, fmtMD } from './dates'
-import { makeCtx, key, weekStat, windowStart, dutyRuns, MAX_RUN, type Cells, type Ctx, type RInput } from './rules'
+import { makeCtx, key, countsAtAcademy, weekStat, windowStart, dutyRuns, MAX_RUN, type Cells, type Ctx, type RInput } from './rules'
 
 export type Problem = {
   /** error = 배정 불가(규칙 위반), warn = 되도록 지키는 규칙 */
@@ -24,7 +24,7 @@ export function validate(input: RInput, cells: Cells, ctxIn?: Ctx): Problem[] {
   for (const d of ctx.days) {
     if (ctx.kind(d) !== 'weekend') continue
     const need = ctx.weekendNeed(d)
-    const on = staff.filter((s) => s.weekendTeam && ctx.employed(s, d) && cells.get(key(s.id, d)) === 'work')
+    const on = staff.filter((s) => countsAtAcademy(s) && ctx.employed(s, d) && cells.get(key(s.id, d)) === 'work')
     if (on.length < need) {
       out.push({ level: 'error', kind: 'weekend_short', date: d, msg: `${fmtMD(d)} 주말 인원 부족 (${on.length}/${need}명)` })
     }
@@ -34,7 +34,7 @@ export function validate(input: RInput, cells: Cells, ctxIn?: Ctx): Problem[] {
       out.push({ level: 'error', kind: 'weekend_solo', date: d, msg: `${fmtMD(d)} 혼자 근무 가능한 사람이 한 명도 없어요` })
     }
     staff
-      .filter((s) => s.weekendTeam && !s.canWeekend && cells.get(key(s.id, d)) === 'work')
+      .filter((s) => countsAtAcademy(s) && !s.canWeekend && cells.get(key(s.id, d)) === 'work')
       .forEach((s) =>
         out.push({ level: 'error', kind: 'weekend_forbidden', date: d, staffId: s.id, cells: [key(s.id, d)], msg: `${fmtMD(d)} ${s.name} 주말 근무 불가로 설정돼 있어요` }),
       )

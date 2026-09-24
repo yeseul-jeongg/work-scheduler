@@ -11,6 +11,8 @@ export type RStaff = {
   name: string
   /** 주말 근무 팀(집체팀) 소속 */
   weekendTeam: boolean
+  /** 집체팀이 아니어도 학원 근무 대타 가능 (자동 배정엔 안 들어감, 손으로 넣으면 학원 인원으로 셈) */
+  academy?: boolean
   canSolo: boolean
   canWeekend: boolean
   hire: string | null
@@ -93,6 +95,9 @@ export function makeCtx(input: RInput) {
   const staffById = new Map(input.staff.map((s) => [s.id, s]))
   return { input, days, kind, weekendNeed, isEventWeekday, eventLabel, employed, mustAt, mustReqAt, wantAt, staffById, openHolWeekend }
 }
+
+/** 주말에 학원 근무 인원으로 세는 사람 */
+export const countsAtAcademy = (s: RStaff) => s.weekendTeam || !!s.academy
 
 /** 연속 근무로 세는 칸 (연차는 쉬는 날이라 끊겨요) */
 export const isOnDuty = (c: Code | undefined) => c === 'work' || c === 'shoot'

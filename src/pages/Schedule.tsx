@@ -11,6 +11,8 @@ import {
   saveMemo,
   saveAssignment,
   clearAssignment,
+  editCells,
+  revertCells,
   addPeriod,
   updatePeriod,
   deletePeriod,
@@ -24,11 +26,13 @@ import {
 import { assign, computeCarry } from '../lib/assign'
 import { validate, type Problem } from '../lib/validate'
 import type { AssignInput } from '../lib/assign'
-import type { Code } from '../lib/rules'
+import { windowStart, type Code } from '../lib/rules'
 import { addDays, dateRange, dow, DOW, fmtMD, isWeekend, lastDayOfMonth, mondayOnOrBefore, sundayOnOrAfter, ymd, diffDays } from '../lib/dates'
 import { usePeriods, periodTitle } from '../lib/periods'
 import { useLoad, useToast, ConfirmButton, ErrorBox } from '../components/ui'
 import PeriodPicker from '../components/PeriodPicker'
+import CellEditor from '../components/CellEditor'
+import { diffProblems, type Change } from '../lib/edit'
 
 export default function SchedulePage() {
   const { periods, current, loaded, error, reload } = usePeriods()
@@ -233,7 +237,7 @@ function EditPeriod({ period, onDone, onError }: { period: Period; onDone: (m?: 
 }
 
 // ---------------- 엑셀 모양 달력 ----------------
-type CellView = { cls: string; txt: string; title?: string }
+type CellView = { cls: string; txt: string; title?: string; editable?: boolean }
 
 function shortHol(name: string): string {
   const base = name.replace(/\s*\(.*\)\s*/g, '')
@@ -295,6 +299,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
         id: s.id,
         name: s.name,
         weekendTeam: !!s.team_id && duty.has(s.team_id),
+        academy: !!s.can_academy && !(s.team_id && duty.has(s.team_id)),
         canSolo: s.can_solo,
         canWeekend: s.can_weekend,
         hire: s.hire_date,
@@ -305,14 +310,61 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
       requests: data.reqs,
       prev,
       locked: data.asg.filter((a) => a.locked),
-      carry: computeCarry(past, data.histAsg, data.histHols),
+      carry: computeCarry(past, data.histAsg, data.histHols, new Set(data.staff.filter((s) => s.team_id && duty.has(s.team_id)).map((s) => s.id))),
     }
   }, [data, from, to, past])
 
+  const cellMap = useMemo(() => new Map<string, Code>((data?.asg ?? []).map((a: Assignment) => [`${a.staff_id}|${a.date}`, a.code])), [data])
   const problems = useMemo<Problem[]>(() => {
     if (!data || !input || data.asg.length === 0) return []
-    return validate(input, new Map(data.asg.map((a: Assignment) => [`${a.staff_id}|${a.date}`, a.code])))
-  }, [data, input])
+    return validate(input, cellMap)
+  }, [data, input, cellMap])
+  const [editCell, setEditCell] = useState<{ sid: string; d: string } | null>(null)
+
+  async function applyEdit(changes: Change[], msg: string) {
+    setBusy(true)
+    try {
+      await editCells(period.id, changes)
+      await reload()
+      setEditCell(null)
+      show(msg)
+    } catch (x) {
+      show(errText(x), 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+  /**
+   * 되돌릴 칸 묶음: 이 사람의 그 주(월~일) 고친 칸 전부
+   * + 주말 칸이면 그날 함께 고친 사람(대타·원래 근무자)의 그 주 고친 칸도 같이
+   */
+  function revertScope(sid: string, d: string) {
+    if (!data) return []
+    const ws = windowStart(d)
+    const we = addDays(ws, 6)
+    const locked = data.asg.filter((a) => a.locked)
+    const people = new Set([sid])
+    if (isWeekend(d)) locked.filter((a) => a.date === d).forEach((a) => people.add(a.staff_id))
+    return locked.filter((a) => people.has(a.staff_id) && a.date >= ws && a.date <= we).map((a) => ({ staff_id: a.staff_id, date: a.date }))
+  }
+  async function revertEdit(sid: string, d: string) {
+    setBusy(true)
+    try {
+      const scope = revertScope(sid, d)
+      // 되돌린 뒤 새로 생기는 문제 미리 확인 (되돌린 사이에 다시 자동 배정을 했으면 앞뒤가 안 맞을 수 있어요)
+      const back = data!.asg.filter((a) => a.auto_code && scope.some((x) => x.staff_id === a.staff_id && x.date === a.date))
+      const added = input ? diffProblems(input, cellMap, back.map((a) => ({ staff_id: a.staff_id, date: a.date, code: a.auto_code! }))).added : []
+      await revertCells(scope)
+      await reload()
+      setEditCell(null)
+      if (added.length) show(`되돌렸어요 (${scope.length}칸). 새로 생긴 빨강·노랑은 "다시 자동 배정"을 누르면 맞춰져요.`, 'err')
+      else show(`자동 배정 값으로 되돌렸어요. (${scope.length}칸)`)
+    } catch (x) {
+      show(errText(x), 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
   const badCells = useMemo(() => new Map(problems.flatMap((p) => (p.cells ?? []).map((k) => [k, p.level] as const))), [problems])
   const badDays = useMemo(() => new Set(problems.filter((p) => p.date && !p.cells).map((p) => p.date!)), [problems])
 
@@ -324,7 +376,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
       await saveAssignment(period.id, from, to, out.cells, out.requestResults)
       await reload()
       const nErr = out.problems.filter((p) => p.level === 'error').length
-      show(nErr ? `자동 배정했어요. 배정 불가 ${nErr}건을 확인해주세요.` : '자동 배정했어요. 규칙 위반 없어요.', nErr ? 'err' : 'ok')
+      show(nErr ? `자동 배정했어요. 빨강 ${nErr}건을 확인해주세요.` : '자동 배정했어요. 규칙 위반 없어요.', nErr ? 'err' : 'ok')
     } catch (x) {
       show(errText(x), 'err')
     } finally {
@@ -368,7 +420,12 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
       const cells: CellView[] = days.map((d) => {
         const v = cellOf(s, ri, d)
         const bad = badCells.get(`${s.id}|${d}`)
-        return bad ? { ...v, cls: v.cls + (bad === 'error' ? ' bad' : ' warnc') } : v
+        const a = asgAt.get(`${s.id}|${d}`)
+        let cls = v.cls + (bad ? (bad === 'error' ? ' bad' : ' warnc') : '') + (a?.locked ? ' lk' : '')
+        // 배정 결과가 있으면 칸을 눌러 고칠 수 있어요 (입사 전·퇴사 후·쉬는 공휴일 빼고)
+        const editable = data.asg.length > 0 && !v.cls.includes(' na') && (!!a || !offHol(d))
+        if (editCell?.sid === s.id && editCell.d === d) cls += ' editing'
+        return { ...v, cls, editable, title: a?.locked ? `${v.title ?? ''} (손으로 고친 칸)`.trim() : v.title }
       })
       return { s, cells, weekendCount }
 
@@ -440,7 +497,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
       }
     })
     return { rows, dayInfo }
-  }, [data, days, from, to, badCells, badDays])
+  }, [data, days, from, to, badCells, badDays, editCell])
 
   const weekendTotal = view?.rows.reduce((n, r) => n + r.weekendCount, 0) ?? 0
 
@@ -468,15 +525,17 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
               {data.asg.length === 0
                 ? '공휴일·개강종강·요청사항을 다 넣었으면 눌러주세요. 누를 때마다 주말 순서가 조금씩 달라질 수 있어요.'
                 : problems.some((p) => p.level === 'error')
-                  ? `배정 불가 ${problems.filter((p) => p.level === 'error').length}건 · 빨간 칸을 확인해주세요.`
-                  : '규칙 위반 없어요.'}
+                  ? `빨강 ${problems.filter((p) => p.level === 'error').length}건 · 빨간 칸을 확인해주세요. 칸을 누르면 고칠 수 있어요.`
+                  : problems.length
+                    ? `규칙 위반 없어요 · 노랑 ${problems.length}건은 확인만 해주세요. 칸을 누르면 고칠 수 있어요.`
+                    : '규칙 위반 없어요. 칸을 누르면 고칠 수 있어요.'}
             </span>
           </div>
           {problems.length > 0 && (
-            <ul className="problems" aria-label="배정 불가 · 경고 목록">
+            <ul className="problems" aria-label="빨강 · 노랑 목록">
               {problems.map((p, i) => (
                 <li key={i} className={p.level}>
-                  <b>{p.level === 'error' ? '배정 불가' : '확인'}</b> {p.msg}
+                  <b>{p.level === 'error' ? '빨강' : '노랑'}</b> {p.msg}
                 </li>
               ))}
             </ul>
@@ -519,7 +578,26 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
               <div className="row" role="row" key={r.s.id}>
                 <div className="lab" style={{ width: 50 }}>{r.s.rank}</div>
                 <div className="lab" style={{ width: 70 }} role="rowheader">{r.s.name}</div>
-                {r.cells.map((c, i) => <div key={days[i]} className={c.cls} title={c.title} role="cell">{c.txt}</div>)}
+                {r.cells.map((c, i) =>
+                  c.editable ? (
+                    <button
+                      key={days[i]}
+                      type="button"
+                      className={c.cls + ' ed'}
+                      title={c.title ?? '눌러서 고치기'}
+                      role="cell"
+                      aria-label={`${r.s.name} ${fmtMD(days[i])} ${c.txt || '휴무'} 고치기`}
+                      onClick={() => {
+                        setMemoDay(null)
+                        setEditCell({ sid: r.s.id, d: days[i] })
+                      }}
+                    >
+                      {c.txt}
+                    </button>
+                  ) : (
+                    <div key={days[i]} className={c.cls} title={c.title} role="cell">{c.txt}</div>
+                  ),
+                )}
                 <div className="cnt">{r.weekendCount || ''}</div>
               </div>
             ))}
@@ -530,7 +608,10 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
                   key={x.d}
                   type="button"
                   className={`c memo${x.wkCls}${x.memo?.highlight ? ' hl' : ''}${memoDay === x.d ? ' editing' : ''}`}
-                  onClick={() => setMemoDay(x.d)}
+                  onClick={() => {
+                    setEditCell(null)
+                    setMemoDay(x.d)
+                  }}
                   aria-label={`${fmtMD(x.d)} 특이사항 편집`}
                   title="눌러서 메모 쓰기"
                 >
@@ -543,6 +624,23 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
           </div>
           </div>
         </div>
+      )}
+      {data && input && editCell && (
+        <CellEditor
+          key={`${editCell.sid}|${editCell.d}`}
+          input={input}
+          cells={cellMap}
+          sid={editCell.sid}
+          d={editCell.d}
+          locked={!!data.asg.find((a) => a.staff_id === editCell.sid && a.date === editCell.d)?.locked}
+          autoCode={data.asg.find((a) => a.staff_id === editCell.sid && a.date === editCell.d)?.auto_code}
+          weekendCounts={Object.fromEntries((view?.rows ?? []).map((r) => [r.s.id, r.weekendCount]))}
+          busy={busy}
+          onApply={applyEdit}
+          revertCount={revertScope(editCell.sid, editCell.d).length}
+          onRevert={() => revertEdit(editCell.sid, editCell.d)}
+          onClose={() => setEditCell(null)}
+        />
       )}
       {data && memoDay && (
         <MemoEditor
@@ -571,6 +669,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
               <span><i className="sw-box want">(근무)</i>희망 (되도록)</span>
               <span><i className="sw-box hol" />공휴일 · 연휴</span>
               <span><i className="sw-box na" />입사 전 · 퇴사 후</span>
+              <span><i className="sw-box lkbox" />손으로 고친 칸 (칸을 누르면 고쳐요)</span>
             </div>
           </section>
           <section className="card flex" aria-label="이번 달 요약">

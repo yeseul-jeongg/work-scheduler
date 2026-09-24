@@ -18,6 +18,8 @@ export type Staff = {
   team_id: string | null
   can_solo: boolean
   can_weekend: boolean
+  /** 집체팀이 아니어도 학원 근무 대타 가능 (06_step5.sql) */
+  can_academy: boolean
   hire_date: string | null
   leave_date: string | null
   sort_order: number
@@ -55,7 +57,16 @@ export type Request = {
   result?: 'applied' | 'unmet' | null
   result_note?: string | null
 }
-export type Assignment = { staff_id: string; date: string; period_id: string | null; code: 'work' | 'leave' | 'off' | 'shoot'; locked: boolean }
+export type Assignment = {
+  staff_id: string
+  date: string
+  period_id: string | null
+  code: 'work' | 'leave' | 'off' | 'shoot'
+  /** 손으로 고친 칸 (다시 자동 배정해도 유지) */
+  locked: boolean
+  /** 자동 배정이 처음 넣은 값 (되돌리기용, 06_step5.sql) */
+  auto_code?: 'work' | 'leave' | 'off' | 'shoot' | null
+}
 export type Memo = { date: string; text: string; highlight: boolean }
 
 export const REQ_KINDS: { id: ReqKind; label: string; must: boolean; cls: string }[] = [
@@ -79,7 +90,7 @@ export function errText(e: unknown): string {
   if (err?.code === '23505') return '이미 같은 항목이 있어요.'
   if (err?.code === '23514') return '입력값이 규칙에 맞지 않아요. (날짜 순서나 숫자를 확인해주세요)'
   if (err?.code === '42703' || err?.code === 'PGRST204' || err?.code === '42883' || err?.code === 'PGRST202') {
-    return '데이터베이스 준비가 안 됐어요. Supabase SQL Editor에서 아직 안 한 SQL(03_step2_3.sql, 05_step4.sql)을 실행해주세요.'
+    return '데이터베이스 준비가 안 됐어요. Supabase SQL Editor에서 아직 안 한 SQL(03_step2_3.sql, 05_step4.sql, 06_step5.sql)을 실행해주세요.'
   }
   if (err?.code === '42501') return '권한이 없어요. 관리자 계정으로 로그인했는지 확인해주세요.'
   if (/failed to fetch|network/i.test(msg)) return '인터넷 연결을 확인해주세요.'
@@ -166,6 +177,19 @@ export const saveAssignment = (
 ) =>
   run<number>(db().rpc('sched_save_assignment', { p_period: periodId, p_from: from, p_to: to, p_cells: cells, p_results: results }))
 export const clearAssignment = (from: string, to: string) => run<number>(db().rpc('sched_clear_assignment', { p_from: from, p_to: to }))
+/** 손으로 고치기: 여러 칸을 한 번에 저장 (모두 locked=true, 자동 배정 값 auto_code는 그대로) */
+export const editCells = (periodId: string, cells: { staff_id: string; date: string; code: Assignment['code'] }[]) =>
+  run(
+    db()
+      .from('sched_assignments')
+      .upsert(
+        cells.map((c) => ({ ...c, period_id: periodId, locked: true, updated_at: new Date().toISOString() })),
+        { onConflict: 'staff_id,date' },
+      ),
+  )
+/** 손으로 고친 칸을 자동 배정 값으로 되돌리기 */
+export const revertCells = (cells: { staff_id: string; date: string }[]) =>
+  run<number>(db().rpc('sched_revert_cells', { p_cells: cells }))
 export const listMemos = (from: string, to: string) =>
   run<Memo[]>(db().from('sched_memos').select('*').gte('date', from).lte('date', to))
 export const saveMemo = (m: Memo) =>
