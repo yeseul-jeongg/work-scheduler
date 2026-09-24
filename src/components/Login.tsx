@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, loginErrorMessage } from '../lib/supabase'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -12,9 +12,14 @@ export default function Login() {
     if (!supabase) return
     setBusy(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
-    setBusy(false)
-    if (error) setError('이메일 또는 비밀번호가 맞지 않아요.')
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      if (error) setError(loginErrorMessage(error))
+    } catch (e) {
+      setError(loginErrorMessage(e as Error))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { supabase, checkIsAdmin } from './lib/supabase'
+import { supabase, checkIsAdmin, configProblem } from './lib/supabase'
 import Login from './components/Login'
 import Shell from './components/Shell'
 
@@ -39,8 +39,24 @@ export default function App() {
     return (
       <Center>
         <h1 className="ttl">설정이 필요해요</h1>
+        {configProblem === 'secret' ? (
+          <p className="sub">
+            <code>VITE_SUPABASE_ANON_KEY</code>에 secret 키가 들어가 있어요. 위험하니 바로 <b>publishable 키</b>(sb_publishable_…)로 바꾸고 다시 배포해주세요.
+          </p>
+        ) : (
+          <p className="sub">
+            Vercel 환경변수에 <code>VITE_SUPABASE_URL</code>, <code>VITE_SUPABASE_ANON_KEY</code>를 넣고 다시 배포해주세요.
+          </p>
+        )}
+      </Center>
+    )
+  }
+  if (configProblem === 'url') {
+    return (
+      <Center>
+        <h1 className="ttl">Supabase 주소를 확인해주세요</h1>
         <p className="sub">
-          Vercel 환경변수에 <code>VITE_SUPABASE_URL</code>, <code>VITE_SUPABASE_ANON_KEY</code>를 넣고 다시 배포해주세요.
+          <code>VITE_SUPABASE_URL</code>은 <code>https://xxxx.supabase.co</code> 형태여야 해요. 고친 다음 Vercel에서 Redeploy 해주세요.
         </p>
       </Center>
     )

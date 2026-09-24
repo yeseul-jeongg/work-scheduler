@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CalendarIcon } from './Login'
-import Placeholder from '../pages/Placeholder'
+import { PeriodProvider } from '../lib/periods'
+import SchedulePage from '../pages/Schedule'
+import RequestsPage from '../pages/Requests'
+import StaffPage from '../pages/Staff'
+import SetupPage from '../pages/Setup'
 
 const TABS = [
   { id: 'schedule', label: '일정표' },
@@ -43,12 +47,14 @@ export default function Shell({ email }: { email: string }) {
         <span className="who">{email}</span>
         <button type="button" className="linkbtn" onClick={() => supabase?.auth.signOut()}>로그아웃</button>
       </header>
-      <main>
-        {tab === 'schedule' && <Placeholder title="일정표" step="3~6단계" />}
-        {tab === 'requests' && <Placeholder title="요청사항" step="3단계" />}
-        {tab === 'staff' && <Placeholder title="직원 관리" step="2단계" />}
-        {tab === 'setup' && <Placeholder title="과정 · 공휴일 · 설정" step="2단계" />}
-      </main>
+      <PeriodProvider>
+        <main>
+          {tab === 'schedule' && <SchedulePage />}
+          {tab === 'requests' && <RequestsPage />}
+          {tab === 'staff' && <StaffPage />}
+          {tab === 'setup' && <SetupPage />}
+        </main>
+      </PeriodProvider>
     </div>
   )
 }
