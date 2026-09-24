@@ -78,8 +78,18 @@ export default function RequestsPage() {
                   <div className="cell w150" role="cell">{fmtRange(r.start_date, r.end_date)}{days > 1 && <span className="muted small"> · {days}일</span>}</div>
                   <div className="cell w100 small muted" role="cell">{k.must ? '무조건 반영' : '되도록 반영'}</div>
                   <div className="cell flex row gap8 center-y" role="cell">
-                    <Badge cls="wait">배정 전</Badge>
-                    <span className="small muted">{r.memo}</span>
+                    {r.result === 'applied' ? (
+                      <Badge cls="done">반영됨</Badge>
+                    ) : r.result === 'unmet' ? (
+                      <Badge cls="miss">미반영</Badge>
+                    ) : (
+                      <Badge cls="wait">배정 전</Badge>
+                    )}
+                    <span className="small">
+                      {r.result_note && <span className={r.result === 'unmet' ? 'miss-note' : 'muted'}>{r.result_note}</span>}
+                      {r.result_note && r.memo && <span className="muted"> · </span>}
+                      <span className="muted">{r.memo}</span>
+                    </span>
                   </div>
                   <div className="cell w90" role="cell">
                     <ConfirmButton label={`${nameOf(r.staff_id)} ${k.label} 삭제`} onConfirm={async () => {
@@ -97,7 +107,7 @@ export default function RequestsPage() {
             })}
           </div>
         )}
-        <p className="sub">반영 결과(반영됨 / 미반영과 이유)는 4단계 자동 배정을 돌린 뒤에 여기 표시돼요.</p>
+        <p className="sub">반영 결과는 일정표에서 자동 배정을 누르면 바뀌어요. 요청을 새로 넣었으면 다시 배정해주세요.</p>
       </section>
       {toast}
     </div>

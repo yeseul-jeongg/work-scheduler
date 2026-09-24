@@ -51,6 +51,9 @@ export type Request = {
   end_date: string
   memo: string | null
   status: 'approved' | 'pending' | 'rejected'
+  /** 자동 배정 반영 결과 (05_step4.sql) */
+  result?: 'applied' | 'unmet' | null
+  result_note?: string | null
 }
 export type Assignment = { staff_id: string; date: string; period_id: string | null; code: 'work' | 'leave' | 'off' | 'shoot'; locked: boolean }
 export type Memo = { date: string; text: string; highlight: boolean }
@@ -76,7 +79,7 @@ export function errText(e: unknown): string {
   if (err?.code === '23505') return '이미 같은 항목이 있어요.'
   if (err?.code === '23514') return '입력값이 규칙에 맞지 않아요. (날짜 순서나 숫자를 확인해주세요)'
   if (err?.code === '42703' || err?.code === 'PGRST204' || err?.code === '42883' || err?.code === 'PGRST202') {
-    return '데이터베이스 준비가 안 됐어요. Supabase SQL Editor에서 03_step2_3.sql 을 실행해주세요.'
+    return '데이터베이스 준비가 안 됐어요. Supabase SQL Editor에서 아직 안 한 SQL(03_step2_3.sql, 05_step4.sql)을 실행해주세요.'
   }
   if (err?.code === '42501') return '권한이 없어요. 관리자 계정으로 로그인했는지 확인해주세요.'
   if (/failed to fetch|network/i.test(msg)) return '인터넷 연결을 확인해주세요.'
@@ -153,6 +156,16 @@ export const deleteRequest = (id: string) => run(db().from('sched_requests').del
 // ---------- 배정 결과 · 특이사항 ----------
 export const listAssignments = (from: string, to: string) =>
   run<Assignment[]>(db().from('sched_assignments').select('*').gte('date', from).lte('date', to))
+/** 자동 배정 저장: 이 기간의 고정 안 한 칸을 새 결과로 바꾸고 요청 반영 결과까지 한 번에 */
+export const saveAssignment = (
+  periodId: string,
+  from: string,
+  to: string,
+  cells: { staff_id: string; date: string; code: Assignment['code'] }[],
+  results: { id: string; result: 'applied' | 'unmet'; note: string }[],
+) =>
+  run<number>(db().rpc('sched_save_assignment', { p_period: periodId, p_from: from, p_to: to, p_cells: cells, p_results: results }))
+export const clearAssignment = (from: string, to: string) => run<number>(db().rpc('sched_clear_assignment', { p_from: from, p_to: to }))
 export const listMemos = (from: string, to: string) =>
   run<Memo[]>(db().from('sched_memos').select('*').gte('date', from).lte('date', to))
 export const saveMemo = (m: Memo) =>

@@ -7,7 +7,10 @@ import {
   listRequests,
   listAssignments,
   listMemos,
+  listTeams,
   saveMemo,
+  saveAssignment,
+  clearAssignment,
   addPeriod,
   updatePeriod,
   deletePeriod,
@@ -16,7 +19,12 @@ import {
   type Period,
   type Request,
   type Holiday,
+  type Assignment,
 } from '../lib/db'
+import { assign, computeCarry } from '../lib/assign'
+import { validate, type Problem } from '../lib/validate'
+import type { AssignInput } from '../lib/assign'
+import type { Code } from '../lib/rules'
 import { addDays, dateRange, dow, DOW, fmtMD, isWeekend, lastDayOfMonth, mondayOnOrBefore, sundayOnOrAfter, ymd, diffDays } from '../lib/dates'
 import { usePeriods, periodTitle } from '../lib/periods'
 import { useLoad, useToast, ConfirmButton, ErrorBox } from '../components/ui'
@@ -47,7 +55,6 @@ export default function SchedulePage() {
           </button>
         )}
         <div className="grow" />
-        <button type="button" className="btn" disabled title="4단계에서 만들어요">자동 배정 (4단계)</button>
         <button type="button" className="btn pri" disabled title="6단계에서 만들어요">엑셀 다운로드 (6단계)</button>
       </div>
 
@@ -73,7 +80,7 @@ export default function SchedulePage() {
           onError={(m) => show(m, 'err')}
         />
       )}
-      {current && <Grid period={current} show={show} />}
+      {current && <Grid period={current} periods={periods} show={show} />}
       {toast}
     </div>
   )
@@ -234,27 +241,108 @@ function shortHol(name: string): string {
   return base.replace(/\s*연휴$/, '')
 }
 
-function Grid({ period, show }: { period: Period; show: (m: string, k?: 'ok' | 'err') => void }) {
+/** 이월·연속 근무 계산에 쓸 지난 일정표 (최근 3개) */
+function pastPeriods(periods: Period[], p: Period): Period[] {
+  return periods
+    .filter((x) => x.end_date < p.start_date)
+    .sort((a, b) => b.start_date.localeCompare(a.start_date))
+    .slice(0, 3)
+}
+
+function Grid({ period, periods, show }: { period: Period; periods: Period[]; show: (m: string, k?: 'ok' | 'err') => void }) {
   const from = period.start_date
   const to = period.end_date
+  const past = useMemo(() => pastPeriods(periods, period), [periods, period])
+  const histFrom = past.length ? past[past.length - 1].start_date : addDays(from, -7)
+  const histTo = addDays(from, -1)
   const [data, err, reload] = useLoad(
     async () => {
-      const [settings, staff, hols, events, reqs, asg, memos] = await Promise.all([
+      const [settings, staff, teams, hols, events, reqs, asg, memos, histAsg, histHols] = await Promise.all([
         getSettings(),
         listStaff(),
+        listTeams(),
         listHolidays(from, to),
         listEvents(from, to),
         listRequests(from, to),
         listAssignments(from, to),
         listMemos(from, to),
+        listAssignments(histFrom, histTo),
+        listHolidays(histFrom, histTo),
       ])
-      return { settings, staff, hols, events, reqs, asg, memos }
+      return { settings, staff, teams, hols, events, reqs, asg, memos, histAsg, histHols }
     },
-    [from, to],
+    [from, to, histFrom],
   )
   const [memoDay, setMemoDay] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const days = useMemo(() => dateRange(from, to), [from, to])
+
+  // 자동 배정·규칙 검사에 넣을 입력
+  const input = useMemo<AssignInput | null>(() => {
+    if (!data) return null
+    const duty = new Set(data.teams.filter((t) => t.weekend_duty).map((t) => t.id))
+    const prev: Record<string, Code> = {}
+    data.histAsg.forEach((a) => {
+      if (a.date >= addDays(from, -7)) prev[`${a.staff_id}|${a.date}`] = a.code
+    })
+    return {
+      start: from,
+      end: to,
+      weekendMin: data.settings.weekend_min,
+      offMax: data.settings.weekday_off_max,
+      staff: data.staff.map((s) => ({
+        id: s.id,
+        name: s.name,
+        weekendTeam: !!s.team_id && duty.has(s.team_id),
+        canSolo: s.can_solo,
+        canWeekend: s.can_weekend,
+        hire: s.hire_date,
+        leave: s.leave_date,
+      })),
+      holidays: data.hols,
+      events: data.events,
+      requests: data.reqs,
+      prev,
+      locked: data.asg.filter((a) => a.locked),
+      carry: computeCarry(past, data.histAsg, data.histHols),
+    }
+  }, [data, from, to, past])
+
+  const problems = useMemo<Problem[]>(() => {
+    if (!data || !input || data.asg.length === 0) return []
+    return validate(input, new Map(data.asg.map((a: Assignment) => [`${a.staff_id}|${a.date}`, a.code])))
+  }, [data, input])
+  const badCells = useMemo(() => new Map(problems.flatMap((p) => (p.cells ?? []).map((k) => [k, p.level] as const))), [problems])
+  const badDays = useMemo(() => new Set(problems.filter((p) => p.date && !p.cells).map((p) => p.date!)), [problems])
+
+  async function runAssign() {
+    if (!input) return
+    setBusy(true)
+    try {
+      const out = assign(input, Date.now())
+      await saveAssignment(period.id, from, to, out.cells, out.requestResults)
+      await reload()
+      const nErr = out.problems.filter((p) => p.level === 'error').length
+      show(nErr ? `자동 배정했어요. 배정 불가 ${nErr}건을 확인해주세요.` : '자동 배정했어요. 규칙 위반 없어요.', nErr ? 'err' : 'ok')
+    } catch (x) {
+      show(errText(x), 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function runClear() {
+    setBusy(true)
+    try {
+      await clearAssignment(from, to)
+      await reload()
+      show('배정을 지웠어요.')
+    } catch (x) {
+      show(errText(x), 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const view = useMemo(() => {
     if (!data) return null
@@ -278,6 +366,13 @@ function Grid({ period, show }: { period: Period; show: (m: string, k?: 'ok' | '
     const rows = people.map((s, ri) => {
       let weekendCount = 0
       const cells: CellView[] = days.map((d) => {
+        const v = cellOf(s, ri, d)
+        const bad = badCells.get(`${s.id}|${d}`)
+        return bad ? { ...v, cls: v.cls + (bad === 'error' ? ' bad' : ' warnc') } : v
+      })
+      return { s, cells, weekendCount }
+
+      function cellOf(s: (typeof people)[number], ri: number, d: string): CellView {
         const w = dow(d)
         const we = w === 0 || w === 6
         let cls = 'c' + (w === 1 ? ' wk' : '') + (we ? ' we' : '')
@@ -314,8 +409,7 @@ function Grid({ period, show }: { period: Period; show: (m: string, k?: 'ok' | '
           return { cls: cls + ' want', txt: want.kind === 'want_work' ? '(근무)' : '(휴무)', title: `${reqKind(want.kind).label}${want.memo ? ' · ' + want.memo : ''}` }
         }
         return { cls, txt: '' }
-      })
-      return { s, cells, weekendCount }
+      }
     })
 
     const dayInfo = days.map((d) => {
@@ -336,7 +430,7 @@ function Grid({ period, show }: { period: Period; show: (m: string, k?: 'ok' | '
       return {
         d,
         w,
-        hdCls: 'c hd' + wkCls + (off ? ' hol sun' : w === 0 ? ' sun' : w === 6 ? ' sat' : '') + (h && !off ? ' holopen' : ''),
+        hdCls: 'c hd' + wkCls + (off ? ' hol sun' : w === 0 ? ' sun' : w === 6 ? ' sat' : '') + (h && !off ? ' holopen' : '') + (badDays.has(d) ? ' bad' : ''),
         holTitle: h ? `${h.name}${h.work_open ? ' (근무 운영)' : ''}` : undefined,
         opens,
         closes,
@@ -346,13 +440,49 @@ function Grid({ period, show }: { period: Period; show: (m: string, k?: 'ok' | '
       }
     })
     return { rows, dayInfo }
-  }, [data, days, from, to])
+  }, [data, days, from, to, badCells, badDays])
 
   const weekendTotal = view?.rows.reduce((n, r) => n + r.weekendCount, 0) ?? 0
 
   return (
     <>
       <ErrorBox msg={err} onRetry={reload} />
+      {data && (
+        <section className="card assign-bar" aria-label="자동 배정">
+          <div className="row gap12 wrap center-y">
+            {data.asg.length === 0 ? (
+              <button type="button" className="btn pri" disabled={busy || period.status === 'confirmed'} onClick={runAssign}>
+                {busy ? '배정 중…' : '자동 배정'}
+              </button>
+            ) : (
+              <ConfirmButton className="btn pri" disabled={busy || period.status === 'confirmed'} confirmText="손으로 고친 칸 빼고 바뀌어요. 다시 배정?" onConfirm={runAssign}>
+                {busy ? '배정 중…' : '다시 자동 배정'}
+              </ConfirmButton>
+            )}
+            {data.asg.length > 0 && (
+              <ConfirmButton className="btn" disabled={busy || period.status === 'confirmed'} confirmText="배정 결과를 지울까요?" onConfirm={runClear}>
+                배정 지우기
+              </ConfirmButton>
+            )}
+            <span className="sub">
+              {data.asg.length === 0
+                ? '공휴일·개강종강·요청사항을 다 넣었으면 눌러주세요. 누를 때마다 주말 순서가 조금씩 달라질 수 있어요.'
+                : problems.some((p) => p.level === 'error')
+                  ? `배정 불가 ${problems.filter((p) => p.level === 'error').length}건 · 빨간 칸을 확인해주세요.`
+                  : '규칙 위반 없어요.'}
+            </span>
+          </div>
+          {problems.length > 0 && (
+            <ul className="problems" aria-label="배정 불가 · 경고 목록">
+              {problems.map((p, i) => (
+                <li key={i} className={p.level}>
+                  <b>{p.level === 'error' ? '배정 불가' : '확인'}</b> {p.msg}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       {data && view && (
         <div className="sheet-wrap">
           <div className="sheet-title">{periodTitle(period)}</div>
@@ -452,8 +582,9 @@ function Grid({ period, show }: { period: Period; show: (m: string, k?: 'ok' | '
             <p className="sub">
               {data.asg.length
                 ? `배정된 칸 ${data.asg.length}개 · 주말 근무 합계 ${weekendTotal}회`
-                : '아직 자동 배정 전이에요. 지금은 공휴일·개강종강·요청사항만 표시돼요. 자동 배정은 4단계에서 만들어요.'}
+                : '아직 자동 배정 전이에요. 지금은 공휴일·개강종강·요청사항만 표시돼요.'}
             </p>
+            <p className="sub">주말 근무자는 같은 주(월~일) 평일에 쉬어요. 일요일 근무자는 되도록 다음 주 토요일도 맡아 6일 연속을 피하고, 못 피하면 노란 경고로 알려줘요.</p>
             <p className="sub">특이사항 칸을 누르면 시험일·검정일 같은 메모를 쓰고 노란색으로 강조할 수 있어요.</p>
           </section>
         </div>

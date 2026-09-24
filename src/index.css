@@ -276,3 +276,17 @@ select.inp { cursor: pointer; }
 .cell.w80 { width: 80px; }
 .tr .cell.flex.small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inp.area { min-height: 140px; resize: vertical; line-height: 1.5; font-family: inherit; }
+
+/* 4단계 자동 배정 */
+.assign-bar { display: flex; flex-direction: column; gap: 10px; }
+.problems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; font-size: 13px; }
+.problems li { padding: 6px 10px; border-radius: 4px; }
+.problems li.error { background: #fde4e4; color: #8c1d18; }
+.problems li.warn { background: #fff6dc; color: #6b4a00; }
+.problems b { margin-right: 6px; }
+.sheet .c.bad { box-shadow: inset 0 0 0 2px #d93025; }
+.sheet .c.warnc { box-shadow: inset 0 0 0 2px #e0a100; }
+.sheet .c.hd.bad { background: #f4b4b0; color: #8c1d18; }
+.bd.done { background: #e1f2e7; color: #1d6f42; }
+.bd.miss { background: #fde4e4; color: #8c1d18; }
+.miss-note { color: #8c1d18; }
