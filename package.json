@@ -8,10 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "tsx tests/assign.test.ts && tsx tests/edit.test.ts"
+    "test": "tsx tests/assign.test.ts && tsx tests/edit.test.ts && tsx tests/sheet.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",
+    "exceljs": "^4.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

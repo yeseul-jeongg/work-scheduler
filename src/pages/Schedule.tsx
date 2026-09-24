@@ -33,6 +33,7 @@ import { useLoad, useToast, ConfirmButton, ErrorBox } from '../components/ui'
 import PeriodPicker from '../components/PeriodPicker'
 import CellEditor from '../components/CellEditor'
 import { diffProblems, type Change } from '../lib/edit'
+import { buildSheet, shortHol, weekendWord } from '../lib/sheet'
 
 export default function SchedulePage() {
   const { periods, current, loaded, error, reload } = usePeriods()
@@ -58,8 +59,6 @@ export default function SchedulePage() {
             기간 수정
           </button>
         )}
-        <div className="grow" />
-        <button type="button" className="btn pri" disabled title="6단계에서 만들어요">엑셀 다운로드 (6단계)</button>
       </div>
 
       {(creating || periods.length === 0) && (
@@ -239,12 +238,6 @@ function EditPeriod({ period, onDone, onError }: { period: Period; onDone: (m?: 
 // ---------------- 엑셀 모양 달력 ----------------
 type CellView = { cls: string; txt: string; title?: string; editable?: boolean }
 
-function shortHol(name: string): string {
-  const base = name.replace(/\s*\(.*\)\s*/g, '')
-  if (base.startsWith('대체공휴일')) return '대체'
-  return base.replace(/\s*연휴$/, '')
-}
-
 /** 이월·연속 근무 계산에 쓸 지난 일정표 (최근 3개) */
 function pastPeriods(periods: Period[], p: Period): Period[] {
   return periods
@@ -383,6 +376,31 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
       setBusy(false)
     }
   }
+  async function runDownload() {
+    if (!data) return
+    setBusy(true)
+    try {
+      const model = buildSheet({
+        period,
+        branch: data.settings.branch_name,
+        staff: data.staff,
+        teams: data.teams,
+        hols: data.hols,
+        events: data.events,
+        asg: data.asg,
+        memos: data.memos,
+      })
+      const { downloadSheet } = await import('../lib/excel')
+      await downloadSheet(model)
+      show(`엑셀 파일을 받았어요. (${model.fileName})`)
+    } catch (x) {
+      show(`엑셀 파일을 만들지 못했어요. ${errText(x)}`, 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const nRed = problems.filter((p) => p.level === 'error').length
+
   async function runClear() {
     setBusy(true)
     try {
@@ -413,6 +431,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
       }),
     )
     const asgAt = new Map(data.asg.map((a) => [`${a.staff_id}|${a.date}`, a]))
+    const dutyTeams = new Set(data.teams.filter((t) => t.weekend_duty).map((t) => t.id))
     const midRow = Math.floor((people.length - 1) / 2)
 
     const rows = people.map((s, ri) => {
@@ -446,7 +465,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
           if (a.code === 'work') {
             if (we) {
               weekendCount++
-              return { cls: cls + ' sw', txt: '주말' }
+              return { cls: cls + ' sw', txt: weekendWord(s, dutyTeams) }
             }
             return { cls, txt: '근무' }
           }
@@ -530,6 +549,16 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
                     ? `규칙 위반 없어요 · 노랑 ${problems.length}건은 확인만 해주세요. 칸을 누르면 고칠 수 있어요.`
                     : '규칙 위반 없어요. 칸을 누르면 고칠 수 있어요.'}
             </span>
+            <div className="grow" />
+            {data.asg.length === 0 ? (
+              <button type="button" className="btn" disabled title="자동 배정 후에 받을 수 있어요">엑셀 다운로드</button>
+            ) : nRed > 0 ? (
+              <ConfirmButton className="btn" disabled={busy} confirmText={`빨강 ${nRed}건 남았어요. 그래도 받기?`} onConfirm={runDownload}>
+                엑셀 다운로드
+              </ConfirmButton>
+            ) : (
+              <button type="button" className="btn" disabled={busy} onClick={runDownload}>엑셀 다운로드</button>
+            )}
           </div>
           {problems.length > 0 && (
             <ul className="problems" aria-label="빨강 · 노랑 목록">
@@ -663,6 +692,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
             <div className="legend">
               <span><i className="sw-box">근무</i>평일 근무</span>
               <span><i className="sw-box we sw">주말</i>주말 근무</span>
+              <span><i className="sw-box we sw">대타</i>학원 대타 (원격팀)</span>
               <span><i className="sw-box lv">연차</i>연차</span>
               <span><i className="sw-box ph">촬영</i>촬영</span>
               <span><i className="sw-box dayoff">휴무</i>휴무 지정</span>

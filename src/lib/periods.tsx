@@ -70,8 +70,5 @@ export function usePeriods(): Ctx {
   return c
 }
 
-export function periodTitle(p: Period): string {
-  const s = p.start_date.split('-').map(Number)
-  const e = p.end_date.split('-').map(Number)
-  return `${String(p.year).slice(2)}년 ${p.month}월 일정표 (${s[1]}/${s[2]} ~ ${e[1]}/${e[2]})`
-}
+/** 제목: "26년 9월 일정표 (8/31 ~ 10/4)" (엑셀과 같은 함수) */
+export { periodTitle } from './sheet'
