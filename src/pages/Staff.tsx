@@ -34,7 +34,7 @@ export default function StaffPage() {
   const [teams, teamErr, reloadTeams] = useLoad(listTeams, [])
   const [toast, show] = useToast()
   const [showRetired, setShowRetired] = useState(false)
-  const [sel, setSel] = useState<string | 'new' | null>(null)
+  const [sel, setSel] = useState<string | 'new' | 'paste' | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   const [order, setOrder] = useState<string[] | null>(null) // 드래그 중 미리보기 순서
@@ -128,7 +128,7 @@ export default function StaffPage() {
     }
   }
 
-  const selected = sel && sel !== 'new' ? staff?.find((s) => s.id === sel) ?? null : null
+  const selected = sel && sel !== 'new' && sel !== 'paste' ? staff?.find((s) => s.id === sel) ?? null : null
 
   return (
     <div className="split">
@@ -142,6 +142,9 @@ export default function StaffPage() {
           </label>
           <button type="button" className="btn" onClick={sortByRank} disabled={!staff?.length}>
             직급순 정렬
+          </button>
+          <button type="button" className="btn" onClick={() => setSel('paste')}>
+            여러 명 붙여넣기
           </button>
           <button type="button" className="btn pri" onClick={() => setSel('new')}>
             + 직원 추가
@@ -218,7 +221,20 @@ export default function StaffPage() {
       </section>
 
       <div className="side">
-        {sel ? (
+        {sel === 'paste' ? (
+          <PasteStaff
+            teams={teams ?? []}
+            existing={staff ?? []}
+            onClose={() => setSel(null)}
+            onDone={async (n) => {
+              await reloadStaff()
+              await reloadTeams()
+              setSel(null)
+              show(`${n}명을 추가했어요. 필요하면 "직급순 정렬"을 눌러주세요.`)
+            }}
+            onError={(m) => show(m, 'err')}
+          />
+        ) : sel ? (
           <StaffForm
             key={sel}
             initial={selected}
@@ -495,6 +511,102 @@ function TeamsCard({
         <button type="submit" className="btn">추가</button>
       </form>
       <p className="sub">"주말 근무 팀"에 체크한 팀만 주말 자동 배정 대상이에요. (예: 집체팀)</p>
+    </section>
+  )
+}
+
+/** 엑셀에서 복사한 여러 줄을 한 번에 추가 (예: "주임 정예슬" 또는 "정예슬	주임") */
+function parseLines(text: string): { name: string; rank: string }[] {
+  const ranks = RANKS as readonly string[]
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.split(/[\t,]+|\s+/).map((x) => x.trim()).filter((x) => x && !/^[\d.]+$/.test(x) && !['직급', '성명', '이름', '팀', '번호', 'No'].includes(x)))
+    .filter((parts) => parts.length > 0)
+    .map((parts) => {
+      const rank = parts.find((x) => ranks.includes(x)) ?? '사원'
+      const name = parts.filter((x) => x !== rank || !ranks.includes(x)).join('') || ''
+      return { name, rank }
+    })
+    .filter((r) => r.name)
+}
+
+function PasteStaff({
+  teams,
+  existing,
+  onClose,
+  onDone,
+  onError,
+}: {
+  teams: Team[]
+  existing: Staff[]
+  onClose: () => void
+  onDone: (n: number) => void
+  onError: (m: string) => void
+}) {
+  const [text, setText] = useState('')
+  const [teamId, setTeamId] = useState<string>(teams[0]?.id ?? '')
+  const [weekend, setWeekend] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const rows = parseLines(text)
+  const names = new Set(existing.map((s) => s.name))
+  const fresh = rows.filter((r) => !names.has(r.name))
+  const dup = rows.length - fresh.length
+  const team = teams.find((t) => t.id === teamId)
+
+  return (
+    <section className="card" aria-labelledby="ps-ttl">
+      <div className="card-head">
+        <h2 className="ttl" id="ps-ttl">여러 명 붙여넣기</h2>
+        <div className="grow" />
+        <button type="button" className="linkbtn" onClick={onClose}>닫기</button>
+      </div>
+      <p className="sub">기존 엑셀에서 <b>직급·성명 칸</b>을 같이 복사해서 붙여넣으세요. 한 줄에 한 명이에요. 직급이 없으면 사원으로 넣어요.</p>
+      <textarea
+        className="inp area"
+        rows={8}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={'과장 이서윤\n주임 박시연\n사원 채수영'}
+        aria-label="직원 목록 붙여넣기"
+      />
+      <label className="fld">
+        팀 (한 번에 같은 팀으로 넣어요)
+        <select className="inp" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+          <option value="">(팀 없음)</option>
+          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}{t.weekend_duty ? ' · 주말 근무 팀' : ''}</option>)}
+        </select>
+      </label>
+      <label className="chk"><input type="checkbox" checked={weekend} onChange={(e) => setWeekend(e.target.checked)} /> 주말 근무 가능</label>
+      {rows.length > 0 && (
+        <div className="soft col small">
+          <b>미리보기 {fresh.length}명{team ? ` · ${team.name}` : ''}</b>
+          <span>{fresh.map((r) => `${r.rank} ${r.name}`).join(', ') || '새로 넣을 사람이 없어요.'}</span>
+          {dup > 0 && <span className="muted">이미 있는 이름 {dup}명은 건너뛰어요.</span>}
+        </div>
+      )}
+      <button
+        type="button"
+        className="btn pri"
+        disabled={busy || fresh.length === 0}
+        onClick={async () => {
+          setBusy(true)
+          try {
+            let order = existing.length
+            for (const r of fresh) {
+              order += 1
+              await addStaff({ name: r.name, rank: r.rank, team_id: teamId || null, can_solo: true, can_weekend: weekend, hire_date: null, leave_date: null, memo: '', sort_order: order })
+            }
+            onDone(fresh.length)
+          } catch (e) {
+            onError(errText(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        {busy ? '추가 중…' : `${fresh.length}명 추가`}
+      </button>
+      <p className="sub">팀이 섞여 있으면 팀별로 나눠서 두 번 붙여넣으면 돼요. 혼자 근무·입사일 같은 건 추가한 뒤 한 명씩 고치면 돼요.</p>
     </section>
   )
 }

@@ -18,6 +18,7 @@
 1. `supabase/01_tables.sql` (1단계)
 2. `supabase/02_add_admin.sql` (관리자 등록)
 3. `supabase/03_step2_3.sql` (2·3단계)
+4. `supabase/04_grants.sql` (테이블 권한. "권한이 없어요"가 뜨면)
 
 ## 공휴일
 - `src/lib/holidays.ts`에 연도별 달력 공휴일이 있어요 (현재 2026, 2027). 새 연도는 여기에 추가.

@@ -275,3 +275,4 @@ select.inp { cursor: pointer; }
 .tbl .cell.flex { min-width: 120px; }
 .cell.w80 { width: 80px; }
 .tr .cell.flex.small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inp.area { min-height: 140px; resize: vertical; line-height: 1.5; font-family: inherit; }

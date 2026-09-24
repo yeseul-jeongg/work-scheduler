@@ -176,3 +176,10 @@ as $$ select 'ok'::text $$;
 revoke all on function public.sched_ping() from public;
 grant execute on function public.sched_ping() to anon, authenticated;
 grant execute on function public.sched_is_admin() to authenticated;
+
+-- 테이블 사용 권한 (새 테이블에 권한이 자동으로 안 붙는 프로젝트 대비. 04_grants.sql과 같은 내용)
+grant select on public.sched_admins to authenticated;
+grant select, insert, update, delete on
+  public.sched_settings, public.sched_teams, public.sched_staff, public.sched_courses, public.sched_holidays,
+  public.sched_events, public.sched_periods, public.sched_requests, public.sched_assignments, public.sched_memos
+to authenticated;
