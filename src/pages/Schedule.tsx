@@ -401,12 +401,17 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
   }
   const nRed = problems.filter((p) => p.level === 'error').length
 
+  // 배정 지우기 = 전부 초기화 (손으로 고친 칸까지, 07_clear_all.sql)
+  const nLocked = data?.asg.filter((a) => a.locked).length ?? 0
   async function runClear() {
     setBusy(true)
     try {
-      await clearAssignment(from, to)
+      const total = data?.asg.length ?? 0
+      const n = await clearAssignment(from, to)
       await reload()
-      show('배정을 지웠어요.')
+      // 07 SQL을 아직 안 했으면 옛 함수가 고친 칸을 남겨요
+      if (typeof n === 'number' && n < total) show('손으로 고친 칸이 남았어요. Supabase에서 07_clear_all.sql을 실행한 뒤 다시 눌러주세요.', 'err')
+      else show('배정을 모두 지웠어요. (초기화)')
     } catch (x) {
       show(errText(x), 'err')
     } finally {
@@ -536,7 +541,7 @@ function Grid({ period, periods, show }: { period: Period; periods: Period[]; sh
               </ConfirmButton>
             )}
             {data.asg.length > 0 && (
-              <ConfirmButton className="btn" disabled={busy || period.status === 'confirmed'} confirmText="배정 결과를 지울까요?" onConfirm={runClear}>
+              <ConfirmButton className="btn" disabled={busy || period.status === 'confirmed'} confirmText={nLocked ? `고친 칸 ${nLocked}개까지 모두 지워요. 지울까요?` : '배정을 모두 지울까요?'} onConfirm={runClear}>
                 배정 지우기
               </ConfirmButton>
             )}

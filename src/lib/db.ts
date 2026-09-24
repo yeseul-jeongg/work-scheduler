@@ -90,7 +90,7 @@ export function errText(e: unknown): string {
   if (err?.code === '23505') return '이미 같은 항목이 있어요.'
   if (err?.code === '23514') return '입력값이 규칙에 맞지 않아요. (날짜 순서나 숫자를 확인해주세요)'
   if (err?.code === '42703' || err?.code === 'PGRST204' || err?.code === '42883' || err?.code === 'PGRST202') {
-    return '데이터베이스 준비가 안 됐어요. Supabase SQL Editor에서 아직 안 한 SQL(03_step2_3.sql, 05_step4.sql, 06_step5.sql)을 실행해주세요.'
+    return '데이터베이스 준비가 안 됐어요. Supabase SQL Editor에서 아직 안 한 SQL(03_step2_3.sql, 05_step4.sql, 06_step5.sql, 07_clear_all.sql)을 실행해주세요.'
   }
   if (err?.code === '42501') return '권한이 없어요. 관리자 계정으로 로그인했는지 확인해주세요.'
   if (/failed to fetch|network/i.test(msg)) return '인터넷 연결을 확인해주세요.'
@@ -176,6 +176,7 @@ export const saveAssignment = (
   results: { id: string; result: 'applied' | 'unmet'; note: string }[],
 ) =>
   run<number>(db().rpc('sched_save_assignment', { p_period: periodId, p_from: from, p_to: to, p_cells: cells, p_results: results }))
+/** 배정 지우기: 이 기간 배정 칸 전부 삭제 (손으로 고친 칸 포함, 07_clear_all.sql). 지운 칸 수를 돌려줘요 */
 export const clearAssignment = (from: string, to: string) => run<number>(db().rpc('sched_clear_assignment', { p_from: from, p_to: to }))
 /** 손으로 고치기: 여러 칸을 한 번에 저장 (모두 locked=true, 자동 배정 값 auto_code는 그대로) */
 export const editCells = (periodId: string, cells: { staff_id: string; date: string; code: Assignment['code'] }[]) =>

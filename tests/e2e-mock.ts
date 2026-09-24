@@ -78,6 +78,13 @@ await ctx.route('https://mock.supabase.co/**', async (route: { request(): { url(
   const json = (b: unknown) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) })
   if (u.pathname.startsWith('/auth/')) return json({ id: 'u1', email: 'a@b.c', aud: 'authenticated', role: 'authenticated' })
   if (u.pathname === '/rest/v1/rpc/sched_is_admin') return json(true)
+  if (u.pathname === '/rest/v1/rpc/sched_clear_assignment') {
+    // OLD=1: 07 SQL 실행 전 (고친 칸 남김)
+    const all = tables.sched_assignments as { locked: boolean }[]
+    const keep = process.env.OLD === '1' ? all.filter((a) => a.locked) : []
+    tables.sched_assignments = keep
+    return json(all.length - keep.length)
+  }
   const t = u.pathname.replace('/rest/v1/', '')
   const rows = filter((tables[t] ?? []) as Record<string, unknown>[], u.searchParams)
   const single = (route.request().headers()['accept'] ?? '').includes('vnd.pgrst.object')
@@ -86,9 +93,21 @@ await ctx.route('https://mock.supabase.co/**', async (route: { request(): { url(
 const page = await ctx.newPage()
 const errors: string[] = []
 page.on('pageerror', (e: Error) => errors.push(e.message))
-await page.goto('http://localhost:4173/')
+await page.goto('http://localhost:4174/')
 await page.getByRole('button', { name: '엑셀 다운로드' }).waitFor({ timeout: 15000 })
 await page.screenshot({ path: `${dir}/screen${withRed ? '-red' : ''}.png` })
+if (process.env.CLEAR) {
+  const clr = page.getByRole('button', { name: '배정 지우기' })
+  await clr.click()
+  console.log('지우기 확인 문구:', await page.locator('button.danger').innerText())
+  await page.locator('button.danger').click()
+  await page.waitForTimeout(800)
+  console.log('알림:', await page.locator('.toast').innerText())
+  console.log('남은 칸 버튼 수:', await page.locator('button.c.ed').count(), '/ 빨강 목록:', await page.locator('.problems li.error').count())
+  await page.screenshot({ path: `${dir}/after-clear${process.env.OLD ? '-old' : ''}.png`, clip: { x: 0, y: 150, width: 1500, height: 600 } })
+  await browser.close()
+  process.exit(0)
+}
 const btn = page.getByRole('button', { name: '엑셀 다운로드' })
 if (withRed) {
   await btn.click()
